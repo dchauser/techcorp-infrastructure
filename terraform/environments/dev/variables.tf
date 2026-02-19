@@ -13,7 +13,7 @@ variable "aws_region" {
 variable "vpc_cidr" {
   description = "CIDR block for the VPC"
   type        = string
-  default     = "10.100.0.0/16"
+  default     = "172.20.0.0/16"
 }
 
 variable "ddi_api_key" {

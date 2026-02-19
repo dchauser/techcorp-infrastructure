@@ -10,17 +10,17 @@ module "aws_networking" {
 
   subnets = {
     app = {
-      cidr = "10.100.10.0/24"
+      cidr = "172.20.10.0/24"
       az   = "us-east-1a"
       tier = "application"
     }
     db = {
-      cidr = "10.100.20.0/24"
+      cidr = "172.20.20.0/24"
       az   = "us-east-1b"
       tier = "database"
     }
     web = {
-      cidr = "10.100.30.0/24"
+      cidr = "172.20.30.0/24"
       az   = "us-east-1a"
       tier = "web"
     }
@@ -43,7 +43,7 @@ module "infoblox_ipam" {
   ip_space_name = "TechCorp-Cloud"
 
   address_block = {
-    address = "10.100.0.0"
+    address = "172.20.0.0"
     cidr    = 16
     name    = "AWS-${var.environment}-VPC"
     comment = "Synced from AWS VPC ${module.aws_networking.vpc_id}"
@@ -51,19 +51,19 @@ module "infoblox_ipam" {
 
   subnets = {
     app = {
-      address = "10.100.10.0"
+      address = "172.20.10.0"
       cidr    = 24
       name    = "AWS-${var.environment}-App-Tier"
       comment = "AWS Subnet: ${module.aws_networking.subnet_ids["app"]}"
     }
     db = {
-      address = "10.100.20.0"
+      address = "172.20.20.0"
       cidr    = 24
       name    = "AWS-${var.environment}-DB-Tier"
       comment = "AWS Subnet: ${module.aws_networking.subnet_ids["db"]}"
     }
     web = {
-      address = "10.100.30.0"
+      address = "172.20.30.0"
       cidr    = 24
       name    = "AWS-${var.environment}-Web-Tier"
       comment = "AWS Subnet: ${module.aws_networking.subnet_ids["web"]}"
@@ -86,7 +86,7 @@ module "infoblox_dns" {
   initial_records = {
     "api" = {
       type    = "A"
-      address = "10.100.10.10"
+      address = "172.20.10.10"
       comment = "Inventory API endpoint"
     }
   }
