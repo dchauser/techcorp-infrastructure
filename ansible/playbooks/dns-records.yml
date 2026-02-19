@@ -1,0 +1,37 @@
+---
+- name: Day-2 DNS Record Management for Inventory App
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    portal_url: "{{ lookup('env', 'BLOXONE_CSP_URL') }}"
+    portal_key: "{{ lookup('env', 'BLOXONE_API_KEY') }}"
+
+  tasks:
+    - name: Create inventory app DNS records (bulk)
+      infoblox.universal_ddi.dns_record:
+        portal_url: "{{ portal_url }}"
+        portal_key: "{{ portal_key }}"
+        zone: "{{ zone_id }}"
+        name_in_zone: "{{ item.name }}"
+        type: "A"
+        rdata:
+          address: "{{ item.ip }}"
+        state: present
+      loop:
+        - { name: "inventory-api", ip: "10.100.10.11" }
+        - { name: "inventory-web", ip: "10.100.10.12" }
+        - { name: "inventory-worker", ip: "10.100.10.13" }
+        - { name: "inventory-db-primary", ip: "10.100.20.11" }
+        - { name: "inventory-db-replica", ip: "10.100.20.12" }
+
+    - name: Create CNAME for load balancer
+      infoblox.universal_ddi.dns_record:
+        portal_url: "{{ portal_url }}"
+        portal_key: "{{ portal_key }}"
+        zone: "{{ zone_id }}"
+        name_in_zone: "inventory"
+        type: "CNAME"
+        rdata:
+          cname: "inventory-api.techcorp.example.com."
+        state: present

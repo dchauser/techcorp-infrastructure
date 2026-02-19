@@ -1,0 +1,13 @@
+# ============================================
+# TechCorp Prod Environment Variables
+# ============================================
+# Copy this file to terraform.tfvars and fill in values
+# NEVER commit terraform.tfvars to version control!
+
+environment = "prod"
+aws_region  = "us-east-1"
+vpc_cidr    = "10.200.0.0/16"
+
+# Infoblox credentials are set via environment variables:
+# export BLOXONE_API_KEY="your-api-key-here"
+# export BLOXONE_CSP_URL="https://csp.infoblox.com"

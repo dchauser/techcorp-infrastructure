@@ -1,0 +1,15 @@
+---
+# ============================================
+# Infoblox Universal DDI Connection Settings
+# ============================================
+# These values are injected via environment variables
+# NEVER hardcode credentials in this file!
+
+portal_url: "{{ lookup('env', 'BLOXONE_CSP_URL') }}"
+portal_key: "{{ lookup('env', 'BLOXONE_API_KEY') }}"
+
+# ============================================
+# Default Settings
+# ============================================
+environment: "{{ lookup('env', 'ENVIRONMENT') | default('dev', true) }}"
+dns_zone: "inventory.techcorp.com."

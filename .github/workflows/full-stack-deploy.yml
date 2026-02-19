@@ -1,0 +1,207 @@
+name: TechCorp Full-Stack Application Deployment
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'terraform/**'
+      - 'ansible/**'
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+
+env:
+  TF_VAR_environment: ${{ github.event.inputs.environment || 'dev' }}
+
+jobs:
+  # ════════════════════════════════════════════════════════════
+  # STAGE 1: TERRAFORM PLAN (on PR) / APPLY (on merge)
+  # ════════════════════════════════════════════════════════════
+  terraform:
+    name: "Terraform: AWS + Infoblox DDI"
+    runs-on: ubuntu-latest
+    outputs:
+      vpc_id: ${{ steps.tf-output.outputs.vpc_id }}
+      zone_id: ${{ steps.tf-output.outputs.zone_id }}
+      subnet_ids: ${{ steps.tf-output.outputs.subnet_ids }}
+      ip_space_id: ${{ steps.tf-output.outputs.ip_space_id }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: Terraform Init
+        run: terraform init
+        working-directory: terraform/environments/${{ env.TF_VAR_environment }}
+
+      - name: Terraform Plan
+        id: plan
+        run: terraform plan -out=tfplan -no-color
+        working-directory: terraform/environments/${{ env.TF_VAR_environment }}
+        env:
+          BLOXONE_API_KEY: ${{ secrets.BLOXONE_API_KEY }}
+          BLOXONE_CSP_URL: ${{ secrets.BLOXONE_CSP_URL }}
+
+      - name: Post Plan to PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const output = `#### Terraform Plan
+            \`\`\`
+            ${{ steps.plan.outputs.stdout }}
+            \`\`\`
+            *Pushed by: @${{ github.actor }}, Environment: ${{ env.TF_VAR_environment }}*`;
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            })
+
+      - name: Terraform Apply
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        run: terraform apply -auto-approve tfplan
+        working-directory: terraform/environments/${{ env.TF_VAR_environment }}
+        env:
+          BLOXONE_API_KEY: ${{ secrets.BLOXONE_API_KEY }}
+          BLOXONE_CSP_URL: ${{ secrets.BLOXONE_CSP_URL }}
+
+      - name: Export Outputs
+        if: github.ref == 'refs/heads/main'
+        id: tf-output
+        run: |
+          echo "vpc_id=$(terraform output -raw vpc_id)" >> $GITHUB_OUTPUT
+          echo "zone_id=$(terraform output -raw zone_id)" >> $GITHUB_OUTPUT
+          echo "subnet_ids=$(terraform output -json subnet_ids)" >> $GITHUB_OUTPUT
+          echo "ip_space_id=$(terraform output -raw ip_space_id)" >> $GITHUB_OUTPUT
+        working-directory: terraform/environments/${{ env.TF_VAR_environment }}
+
+  # ════════════════════════════════════════════════════════════
+  # STAGE 2: ANSIBLE DAY-2 OPERATIONS (parallel)
+  # ════════════════════════════════════════════════════════════
+  ansible-dns:
+    name: "Ansible: Application DNS Records"
+    needs: terraform
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python & Ansible
+        run: |
+          pip install ansible boto3
+          ansible-galaxy collection install infoblox.universal_ddi amazon.aws
+
+      - name: Deploy Application DNS Records
+        run: |
+          ansible-playbook ansible/playbooks/dns-records.yml \
+            -e "zone_id=${{ needs.terraform.outputs.zone_id }}" \
+            -e "environment=${{ env.TF_VAR_environment }}"
+        env:
+          BLOXONE_CSP_URL: ${{ secrets.BLOXONE_CSP_URL }}
+          BLOXONE_API_KEY: ${{ secrets.BLOXONE_API_KEY }}
+
+  ansible-ipam:
+    name: "Ansible: IPAM Host Registration"
+    needs: terraform
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python & Ansible
+        run: |
+          pip install ansible boto3
+          ansible-galaxy collection install infoblox.universal_ddi
+
+      - name: Allocate IPs for New Instances
+        run: |
+          ansible-playbook ansible/playbooks/ipam-allocate.yml \
+            -e "ip_space_id=${{ needs.terraform.outputs.ip_space_id }}" \
+            -e "subnet_ids='${{ needs.terraform.outputs.subnet_ids }}'"
+        env:
+          BLOXONE_CSP_URL: ${{ secrets.BLOXONE_CSP_URL }}
+          BLOXONE_API_KEY: ${{ secrets.BLOXONE_API_KEY }}
+
+  # ════════════════════════════════════════════════════════════
+  # STAGE 3: VALIDATION
+  # ════════════════════════════════════════════════════════════
+  validate:
+    name: "Validate: End-to-End Stack"
+    needs: [terraform, ansible-dns, ansible-ipam]
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Validate AWS Resources
+        run: |
+          echo "Validating AWS VPC..."
+          aws ec2 describe-vpcs --vpc-ids ${{ needs.terraform.outputs.vpc_id }}
+          echo "AWS VPC exists and is available"
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: us-east-1
+
+      - name: Validate IPAM Registration
+        run: |
+          pip install ansible
+          ansible-galaxy collection install infoblox.universal_ddi
+          ansible-playbook ansible/playbooks/validate-deployment.yml \
+            -e "ip_space_id=${{ needs.terraform.outputs.ip_space_id }}"
+        env:
+          BLOXONE_CSP_URL: ${{ secrets.BLOXONE_CSP_URL }}
+          BLOXONE_API_KEY: ${{ secrets.BLOXONE_API_KEY }}
+
+  # ════════════════════════════════════════════════════════════
+  # STAGE 4: DEPLOYMENT SUMMARY
+  # ════════════════════════════════════════════════════════════
+  summary:
+    name: "Post Deployment Summary"
+    needs: [terraform, ansible-dns, ansible-ipam, validate]
+    if: always() && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Create Deployment Summary
+        run: |
+          echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Component | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| AWS Infrastructure | ${{ needs.terraform.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Infoblox IPAM | ${{ needs.ansible-ipam.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Infoblox DNS | ${{ needs.ansible-dns.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Validation | ${{ needs.validate.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** ${{ env.TF_VAR_environment }}" >> $GITHUB_STEP_SUMMARY

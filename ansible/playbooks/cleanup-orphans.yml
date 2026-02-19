@@ -1,0 +1,27 @@
+---
+- name: Clean up orphaned DNS records not managed by Terraform
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    portal_url: "{{ lookup('env', 'BLOXONE_CSP_URL') }}"
+    portal_key: "{{ lookup('env', 'BLOXONE_API_KEY') }}"
+    orphan_records:
+      - "legacy-app"
+      - "test-server"
+      - "old-api"
+
+  tasks:
+    - name: Remove orphaned records
+      infoblox.universal_ddi.dns_record:
+        portal_url: "{{ portal_url }}"
+        portal_key: "{{ portal_key }}"
+        zone: "{{ zone_id }}"
+        name_in_zone: "{{ item }}"
+        type: "A"
+        state: absent
+      loop: "{{ orphan_records }}"
+
+    - name: Report cleanup
+      debug:
+        msg: "Cleaned up {{ orphan_records | length }} orphaned records"

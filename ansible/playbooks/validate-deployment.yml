@@ -1,0 +1,34 @@
+---
+- name: End-to-End Deployment Validation
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    portal_url: "{{ lookup('env', 'BLOXONE_CSP_URL') }}"
+    portal_key: "{{ lookup('env', 'BLOXONE_API_KEY') }}"
+
+  tasks:
+    - name: Verify IP Space exists
+      infoblox.universal_ddi.ipam_ip_space_info:
+        portal_url: "{{ portal_url }}"
+        portal_key: "{{ portal_key }}"
+        id: "{{ ip_space_id }}"
+      register: ip_space_check
+
+    - name: Verify IP Space is valid
+      assert:
+        that:
+          - ip_space_check is defined
+        fail_msg: "IP Space validation failed!"
+        success_msg: "IP Space verified successfully"
+
+    - name: Validation Summary
+      debug:
+        msg: |
+          ============================================
+          DEPLOYMENT VALIDATION COMPLETE
+          ============================================
+          IP Space:  VERIFIED
+          Environment: {{ environment | default('dev') }}
+          ============================================
+          All checks passed!

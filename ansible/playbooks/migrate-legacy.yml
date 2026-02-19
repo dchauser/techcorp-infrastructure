@@ -1,0 +1,38 @@
+---
+- name: Migrate Legacy On-Prem DNS to Universal DDI
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    portal_url: "{{ lookup('env', 'BLOXONE_CSP_URL') }}"
+    portal_key: "{{ lookup('env', 'BLOXONE_API_KEY') }}"
+    legacy_records:
+      - { name: "erp", ip: "192.168.1.10", comment: "Legacy ERP system" }
+      - { name: "fileserver", ip: "192.168.1.20", comment: "Corporate file share" }
+      - { name: "intranet", ip: "192.168.1.30", comment: "Internal portal" }
+      - { name: "mail", ip: "192.168.1.40", comment: "Exchange server" }
+      - { name: "vpn", ip: "192.168.1.50", comment: "VPN concentrator" }
+      - { name: "printer-hq", ip: "192.168.1.60", comment: "HQ network printer" }
+      - { name: "backup-srv", ip: "192.168.1.70", comment: "Backup server" }
+      - { name: "monitoring", ip: "192.168.1.80", comment: "Nagios monitoring" }
+      - { name: "wiki", ip: "192.168.1.90", comment: "Confluence wiki" }
+      - { name: "ticketing", ip: "192.168.1.100", comment: "Jira ticketing" }
+
+  tasks:
+    - name: Migrate legacy DNS records to Universal DDI
+      infoblox.universal_ddi.dns_record:
+        portal_url: "{{ portal_url }}"
+        portal_key: "{{ portal_key }}"
+        zone: "{{ zone_id }}"
+        name_in_zone: "{{ item.name }}"
+        type: "A"
+        rdata:
+          address: "{{ item.ip }}"
+        comment: "Migrated: {{ item.comment }}"
+        state: present
+      loop: "{{ legacy_records }}"
+      register: migration_results
+
+    - name: Migration Summary
+      debug:
+        msg: "Migrated {{ migration_results.results | selectattr('changed', 'true') | list | length }} records"
