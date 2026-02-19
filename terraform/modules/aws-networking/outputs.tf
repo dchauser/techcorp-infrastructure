@@ -18,7 +18,7 @@ output "subnet_cidrs" {
   value       = { for k, v in aws_subnet.subnets : k => v.cidr_block }
 }
 
-output "nat_gateway_ip" {
-  description = "Public IP of the NAT gateway (placeholder for DNS records)"
+output "igw_id" {
+  description = "ID of the Internet Gateway"
   value       = aws_internet_gateway.main.id
 }

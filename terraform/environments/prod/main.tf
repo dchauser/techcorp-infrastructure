@@ -86,7 +86,7 @@ module "infoblox_dns" {
   initial_records = {
     "api" = {
       type    = "A"
-      address = module.aws_networking.nat_gateway_ip
+      address = "10.200.10.10"
       comment = "Inventory API endpoint"
     }
   }
